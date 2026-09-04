@@ -1,4 +1,11 @@
-"""Rheem EcoNet device - one cloud account exposing all its equipment."""
+"""Rheem EcoNet device - one cloud account driven by the pyeconet client + MQTT.
+
+Uses ExternalClientDevice because pyeconet manages its own connection and MQTT
+push internally. Authentication happens in the connect path (create_client), so
+the framework watchdog's reconnect re-logs-in and re-subscribes automatically -
+recovery == reconnect. Concurrent connect() calls are serialised (rule 9) so the
+framework's double-connect can never orphan a second MQTT client.
+"""
 
 import asyncio
 import logging
@@ -9,22 +16,21 @@ from pyeconet.equipment.thermostat import (
     ThermostatOperationMode,
 )
 from pyeconet.equipment.water_heater import WaterHeaterOperationMode
-from ucapi_framework import DeviceEvents, PollingDevice
+from ucapi_framework import ExternalClientDevice
 
 from uc_intg_econet.client import EconetClient
 from uc_intg_econet.config import EconetConfig
-from uc_intg_econet.const import POLL_INTERVAL, STATE_ON, STATE_UNAVAILABLE
+from uc_intg_econet.const import STATE_ON, STATE_UNAVAILABLE
 
 _LOG = logging.getLogger(__name__)
 
 
-class EconetDevice(PollingDevice):
+class EconetDevice(ExternalClientDevice):
     """One Rheem EcoNet account."""
 
     def __init__(self, device_config: EconetConfig, **kwargs: Any) -> None:
-        super().__init__(device_config, poll_interval=POLL_INTERVAL, **kwargs)
+        super().__init__(device_config, **kwargs)
         self._device_config = device_config
-        self._client: EconetClient | None = None
         self._connect_lock: asyncio.Lock = asyncio.Lock()
         self._state: str = STATE_UNAVAILABLE
         self._loop: asyncio.AbstractEventLoop | None = None
@@ -54,42 +60,38 @@ class EconetDevice(PollingDevice):
             return None
         return self._client.get(serial)
 
-    async def establish_connection(self) -> EconetClient:
+    # -- ExternalClientDevice interface --------------------------------
+    async def connect(self) -> bool:
         async with self._connect_lock:
-            self._loop = asyncio.get_running_loop()
-            if self._client is None:
-                client = EconetClient(self._device_config.email, self._device_config.password)
-                await client.connect()
-                client.subscribe(self._on_push)
-                self._client = client
-            self._state = STATE_ON
-            return self._client
+            return await super().connect()
+
+    async def disconnect(self) -> None:
+        async with self._connect_lock:
+            await super().disconnect()
+
+    async def create_client(self) -> EconetClient:
+        await self.disconnect_client()  # defensive - watchdog bypasses connect()
+        client = EconetClient(self._device_config.email, self._device_config.password)
+        await client.connect()
+        return client
+
+    async def connect_client(self) -> None:
+        self._loop = asyncio.get_running_loop()
+        self._client.subscribe(self._on_push)
+        self._state = STATE_ON
+
+    async def disconnect_client(self) -> None:
+        if self._client is not None:
+            self._client.close()
+        self._state = STATE_UNAVAILABLE
+
+    def check_client_connected(self) -> bool:
+        return self._client is not None and self._client.is_connected
 
     def _on_push(self) -> None:
         loop = self._loop
         if loop is not None and loop.is_running():
             loop.call_soon_threadsafe(self.push_update)
-
-    async def poll_device(self) -> None:
-        if self._client is None:
-            return
-        try:
-            async with self._connect_lock:
-                await self._client.refresh()
-            self.push_update()
-        except Exception as err:  # pylint: disable=broad-exception-caught
-            _LOG.debug("[%s] Poll error: %s", self.log_id, err)
-            if self._state != STATE_UNAVAILABLE:
-                self._state = STATE_UNAVAILABLE
-                self.events.emit(DeviceEvents.DISCONNECTED, self.identifier)
-
-    async def disconnect(self) -> None:
-        async with self._connect_lock:
-            if self._client is not None:
-                self._client.close()
-                self._client = None
-        self._state = STATE_UNAVAILABLE
-        await super().disconnect()
 
     # -- water-heater commands ----------------------------------------
     def wh_set_setpoint(self, serial: str, temperature: int) -> bool:
