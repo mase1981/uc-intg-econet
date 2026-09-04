@@ -1,0 +1,39 @@
+{
+  "driver_id": "uc_intg_econet",
+  "version": "1.0.0",
+  "min_core_api": "0.22.0",
+  "name": {
+    "en": "Rheem EcoNet"
+  },
+  "icon": "uc:home",
+  "description": {
+    "en": "Control Rheem EcoNet water heaters and thermostats from your account. Set the water temperature and operation mode (Energy Saver, Heat Pump, High Demand, Electric, Gas), toggle away mode, control thermostats (heat/cool/auto, fan, target temperature), and monitor hot-water availability, tank health, humidity, running status, and Wi-Fi signal."
+  },
+  "developer": {
+    "name": "Meir Miyara",
+    "email": "meir.miyara@gmail.com",
+    "url": "https://github.com/mase1981"
+  },
+  "home_page": "https://github.com/mase1981/uc-intg-econet",
+  "release_date": "2026-09-04",
+  "setup_data_schema": {
+    "title": {
+      "en": "Rheem EcoNet Account"
+    },
+    "settings": [
+      {
+        "id": "info",
+        "label": {
+          "en": "Rheem EcoNet Account"
+        },
+        "field": {
+          "label": {
+            "value": {
+              "en": "On the next screen, enter the email and password for your Rheem EcoNet account (the same credentials you use in the EcoNet app). All water heaters and thermostats on the account will be added."
+            }
+          }
+        }
+      }
+    ]
+  }
+}

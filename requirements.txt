@@ -1,0 +1,4 @@
+ucapi>=0.7.0
+ucapi-framework>=1.9.5
+aiohttp>=3.9.0
+pyeconet>=0.2.6
